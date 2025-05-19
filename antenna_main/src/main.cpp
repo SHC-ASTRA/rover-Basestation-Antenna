@@ -9,11 +9,14 @@
 //  Includes  //
 //------------//
 
-#include "AstraMisc.h"
-#include "AntennaMainMCU.h"
+#include <Arduino.h>
+#include <LSS.h>
 #include <SPI.h>
 #include <Ethernet.h>
-#include <LSS.h>
+
+#include "AstraMisc.h"
+#include "AstraSensors.h"
+#include "AntennaMainMCU.h"
 
 
 //------------//
@@ -39,7 +42,9 @@ const unsigned int localPort = 8888;  // local port to listen on for UDP packets
 
 LSS myLSS(0);
 
-// Adafruit_BNO055 bno;
+SFE_UBLOX_GNSS myGNSS;
+
+Adafruit_BNO055 bno;
 
 EthernetUDP Udp;
 
@@ -50,6 +55,8 @@ EthernetUDP Udp;
 
 uint32_t lastBlink = 0;
 bool ledState = false;
+
+long lastAlignment = 0;
 
 
 //--------------//
@@ -99,6 +106,63 @@ void setup() {
     //  Sensors  //
     //-----------//
 
+    if(!bno.begin()) 
+        Serial.println("!BNO failed to start...");
+    else 
+        Serial.println("BNO055 Started Successfully");
+
+    if(!myGNSS.begin()) 
+        Serial.println("GPS not working");
+    else 
+        Serial.println("GPS is working");
+
+    // Setup for GPS (copied directly from Core)
+
+    myGNSS.setI2COutput(COM_TYPE_UBX); //Set the I2C port to output UBX only (turn off NMEA noise)
+    myGNSS.setNavigationFrequency(30);
+    // Create storage for the time pulse parameters
+    UBX_CFG_TP5_data_t timePulseParameters;
+
+    // Get the time pulse parameters
+    if (myGNSS.getTimePulseParameters(&timePulseParameters) == false)
+    {
+        Serial.println(F("getTimePulseParameters failed! not Freezing..."));
+    }
+
+    // Print the CFG TP5 version
+    Serial.print(F("UBX_CFG_TP5 version: "));
+    Serial.println(timePulseParameters.version);
+
+    timePulseParameters.tpIdx = 0; // Select the TIMEPULSE pin
+    //timePulseParameters.tpIdx = 1; // Or we could select the TIMEPULSE2 pin instead, if the module has one
+
+    // We can configure the time pulse pin to produce a defined frequency or period
+    // Here is how to set the frequency:
+
+    // While the module is _locking_ to GNSS time, make it generate 2kHz
+    timePulseParameters.freqPeriod = 2000; // Set the frequency/period to 2000Hz
+    timePulseParameters.pulseLenRatio = 0x55555555; // Set the pulse ratio to 1/3 * 2^32 to produce 33:67 mark:space
+
+    // When the module is _locked_ to GNSS time, make it generate 1kHz
+    timePulseParameters.freqPeriodLock = 1000; // Set the frequency/period to 1000Hz
+    timePulseParameters.pulseLenRatioLock = 0x80000000; // Set the pulse ratio to 1/2 * 2^32 to produce 50:50 mark:space
+
+    timePulseParameters.flags.bits.active = 1; // Make sure the active flag is set to enable the time pulse. (Set to 0 to disable.)
+    timePulseParameters.flags.bits.lockedOtherSet = 1; // Tell the module to use freqPeriod while locking and freqPeriodLock when locked to GNSS time
+    timePulseParameters.flags.bits.isFreq = 1; // Tell the module that we want to set the frequency (not the period)
+    timePulseParameters.flags.bits.isLength = 0; // Tell the module that pulseLenRatio is a ratio / duty cycle (* 2^-32) - not a length (in us)
+    timePulseParameters.flags.bits.polarity = 1; // Tell the module that we want the rising edge at the top of second. (Set to 0 for falling edge.)
+
+    // Now set the time pulse parameters
+    if (myGNSS.setTimePulseParameters(&timePulseParameters) == false)
+    {
+        Serial.println(F("setTimePulseParameters failed!"));
+    }
+    else
+    {
+        Serial.println(F("Success!"));
+    }
+
 
     //--------------------//
     //  Misc. Components  //
@@ -143,6 +207,19 @@ void loop() {
         digitalWrite(LED_BUILTIN, ledState);
     }
 #endif
+
+    if (millis() - lastAlignment > 250) {
+        lastAlignment = millis();
+        // Check if there has been an update from basestation in the last 1000 ms
+
+        // Get heading measurement from IMU
+
+        // Get lat/lon from GNSS
+
+        // Calculate required heading to point antenna at rover
+
+        // Tell LSS to rotate to required angle
+    }
 
 
     //-------------//

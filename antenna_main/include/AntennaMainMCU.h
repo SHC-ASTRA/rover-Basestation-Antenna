@@ -1,6 +1,6 @@
 /**
  * @file AntennaMainMCU.h
- * @author your name (you@domain.com)
+ * @author David Sharpe (ds0196@uah.edu)
  * @brief
  *
  */
@@ -9,7 +9,7 @@
 
 #ifdef ARDUINO_ADAFRUIT_FEATHER_ESP32_V2
 
-#define ETHERNET_CS 33
+#    define ETHERNET_CS 33
 
 
 #endif
