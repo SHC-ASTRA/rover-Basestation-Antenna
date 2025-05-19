@@ -57,11 +57,16 @@ uint32_t lastBlink = 0;
 bool ledState = false;
 
 long lastAlignment = 0;
+long lastRoverPos = 0;
+long roverlat = 0;
+long roverlon = 0;
 
 
 //--------------//
 //  Prototypes  //
 //--------------//
+
+float calcHeading(double mylat, double mylon, double targetlat, double targetlon);
 
 
 //------------------------------------------------------------------------------------------------//
@@ -208,17 +213,29 @@ void loop() {
     }
 #endif
 
-    if (millis() - lastAlignment > 250) {
+    if (millis() - lastAlignment > 250 && millis() - lastRoverPos < 5000) {  // Requires update <5 seconds ago
         lastAlignment = millis();
-        // Check if there has been an update from basestation in the last 1000 ms
-
-        // Get heading measurement from IMU
 
         // Get lat/lon from GNSS
+        double gps_data[3] = {0};
+        getPosition(myGNSS, gps_data);
+        double mylat = gps_data[0];
+        double mylon = gps_data[1];
 
         // Calculate required heading to point antenna at rover
+        float requiredHeading = calcHeading(mylat, mylon, roverlat, roverlon);
 
-        // Tell LSS to rotate to required angle
+        // Get heading measurement from IMU
+        float currentHeading = getBNOOrient(bno);
+
+        // Make LSS rotate towards the required heading
+        if (abs(currentHeading - requiredHeading) < 5) {  // arbitrary tolerance
+            myLSS.wheel(0);  // stop if within tolerance
+        } else if (currentHeading < requiredHeading) {
+            myLSS.wheel(10);
+        } else if (currentHeading > requiredHeading) {
+            myLSS.wheel(-10);
+        }
     }
 
 
@@ -324,3 +341,10 @@ void loop() {
 //    //            //          //      //////////    //
 //                                                    //
 //----------------------------------------------------//
+
+float calcHeading(double mylat, double mylon, double targetlat, double targetlon) {
+    double x = cos(targetlat) * sin(targetlon - mylon);
+    double y = cos(mylat) * sin(targetlat) - sin(mylat) * cos(targetlat) * cos(targetlon - mylon);
+
+    return atan2(x, y) * 180 / M_PI;  // Convert to degrees
+}
