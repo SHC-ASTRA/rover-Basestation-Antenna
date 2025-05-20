@@ -31,9 +31,9 @@
 byte mac[] = {
     0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
 };
-IPAddress ip(192, 168, 1, 177);
+IPAddress ip(192, 168, 1, 8);
 
-const unsigned int localPort = 8888;  // local port to listen on for UDP packets
+const unsigned int localPort = 69420;  // local port to listen on for UDP packets
 
 
 //---------------------//
@@ -264,6 +264,25 @@ void loop() {
         Udp.read(packetBuffer, UDP_TX_PACKET_MAX_SIZE);
         Serial.println("Contents:");
         Serial.println(packetBuffer);
+
+        String input = String(packetBuffer);
+        input.trim();
+        std::vector<String> args = {};
+        parseInput(input, args);
+
+        if (args.size() == 2) {
+            double lat = args[0].toDouble();
+            double lon = args[1].toDouble();
+            if (lat != 0 && lon != 0) {
+                lastRoverPos = millis();
+                roverlat = lat;
+                roverlon = lon;
+                Serial.print("Rover lat: ");
+                Serial.println(roverlat);
+                Serial.print("Rover lon: ");
+                Serial.println(roverlon);
+            }
+        }
     }
 
 
