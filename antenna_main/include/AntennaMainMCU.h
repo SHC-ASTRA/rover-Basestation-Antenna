@@ -7,7 +7,7 @@
 #pragma once
 
 
-#ifdef ARDUINO_ADAFRUIT_FEATHER_ESP32_V2
+#ifndef ARDUINO_ADAFRUIT_FEATHER_ESP32_V2
 
 #    define ETHERNET_CS 33
 

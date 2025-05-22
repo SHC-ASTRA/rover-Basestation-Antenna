@@ -13,6 +13,7 @@
 #include <LSS.h>
 #include <SPI.h>
 #include <Ethernet.h>
+#include <EthernetUdp.h>
 
 #include "AstraMisc.h"
 #include "AstraSensors.h"
@@ -31,16 +32,16 @@
 byte mac[] = {
     0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
 };
-IPAddress ip(192, 168, 1, 8);
+IPAddress ip(192, 168, 1, 4);
 
-const unsigned int localPort = 69420;  // local port to listen on for UDP packets
+const unsigned int localPort = 42069;  // local port to listen on for UDP packets
 
 
 //---------------------//
 //  Component classes  //
 //---------------------//
 
-LSS myLSS(0);
+LSS myLSS(254);
 
 SFE_UBLOX_GNSS myGNSS;
 
@@ -58,8 +59,8 @@ bool ledState = false;
 
 long lastAlignment = 0;
 long lastRoverPos = 0;
-long roverlat = 0;
-long roverlon = 0;
+double roverlat = 0;
+double roverlon = 0;
 
 
 //--------------//
@@ -105,6 +106,17 @@ void setup() {
 
     Ethernet.init(ETHERNET_CS);
     Ethernet.begin(mac, ip);
+    if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+        Serial.println("Ethernet shield was not found.");
+    }
+    if (Ethernet.linkStatus() == LinkOFF) {
+        Serial.println("Ethernet cable is not connected.");
+    }
+    if (Ethernet.hardwareStatus() != EthernetNoHardware && Ethernet.linkStatus() != LinkOFF) {
+        Serial.println("Ethernet ready.");
+    }
+
+    Udp.begin(localPort);
 
 
     //-----------//
@@ -120,6 +132,7 @@ void setup() {
         Serial.println("GPS not working");
     else 
         Serial.println("GPS is working");
+
 
     // Setup for GPS (copied directly from Core)
 
@@ -165,7 +178,7 @@ void setup() {
     }
     else
     {
-        Serial.println(F("Success!"));
+        Serial.println(F("Success! (setTimePulseParameters)"));
     }
 
 
@@ -173,15 +186,7 @@ void setup() {
     //  Misc. Components  //
     //--------------------//
 
-    // Check for Ethernet hardware present
-    if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-        Serial.println("Ethernet shield was not found.");
-    }
-    if (Ethernet.linkStatus() == LinkOFF) {
-        Serial.println("Ethernet cable is not connected.");
-    }
-
-    Udp.begin(localPort);
+	LSS::initBus(Serial2, LSS_DefaultBaud);
 }
 
 
@@ -229,13 +234,18 @@ void loop() {
         float currentHeading = getBNOOrient(bno);
 
         // Make LSS rotate towards the required heading
-        if (abs(currentHeading - requiredHeading) < 5) {  // arbitrary tolerance
-            myLSS.wheel(0);  // stop if within tolerance
-        } else if (currentHeading < requiredHeading) {
-            myLSS.wheel(10);
-        } else if (currentHeading > requiredHeading) {
-            myLSS.wheel(-10);
-        }
+        // if (abs(currentHeading - requiredHeading) < 5) {  // arbitrary tolerance
+        //     myLSS.wheel(0);  // stop if within tolerance
+        // } else if (currentHeading < requiredHeading) {
+        //     myLSS.wheel(10);
+        // } else if (currentHeading > requiredHeading) {
+        //     myLSS.wheel(-10);
+        // }
+        Serial.printf("My pos: %f, %f\n", mylat, mylon);
+        Serial.printf("Rover pos: %f, %f\n", roverlat, roverlon);
+        Serial.printf("My heading: %d\tRequired heading: ", currentHeading);
+        Serial.println(requiredHeading);
+        Serial.println();
     }
 
 
@@ -247,9 +257,7 @@ void loop() {
 
     int packetSize = Udp.parsePacket();
     if (packetSize) {
-        Serial.print("Received packet of size ");
-        Serial.println(packetSize);
-        Serial.print("From ");
+        Serial.print("Received packet from ");
         IPAddress remote = Udp.remoteIP();
         for (int i = 0; i < 4; i++) {
             Serial.print(remote[i], DEC);
@@ -257,12 +265,14 @@ void loop() {
                 Serial.print(".");
             }
         }
-        Serial.print(", port ");
-        Serial.println(Udp.remotePort());
+        Serial.print(":");
+        Serial.print(Udp.remotePort());
 
         // read the packet into packetBuffer
         Udp.read(packetBuffer, UDP_TX_PACKET_MAX_SIZE);
-        Serial.println("Contents:");
+        Serial.print(" [");
+        Serial.print(packetSize);
+        Serial.print("] ");
         Serial.println(packetBuffer);
 
         String input = String(packetBuffer);
@@ -273,15 +283,17 @@ void loop() {
         if (args.size() == 2) {
             double lat = args[0].toDouble();
             double lon = args[1].toDouble();
-            if (lat != 0 && lon != 0) {
+            // if (lat != 0 && lon != 0) {
                 lastRoverPos = millis();
                 roverlat = lat;
                 roverlon = lon;
-                Serial.print("Rover lat: ");
-                Serial.println(roverlat);
-                Serial.print("Rover lon: ");
+                Serial.print("Rover: ");
+                Serial.print(roverlat);
+                Serial.print(", ");
                 Serial.println(roverlon);
-            }
+            // }
+        } else if (args[0] == "reset") {
+            myLSS.reset();
         }
     }
 
@@ -333,6 +345,22 @@ void loop() {
             }
         }
 
+        else if (command == "rover" && checkArgs(args, 2)) {
+            lastRoverPos = millis();
+            roverlat = args[1].toDouble();
+            roverlon = args[2].toDouble();
+        }
+
+        else if (command == "lss") {
+            myLSS.wheel(args[1].toFloat());
+            Serial.print("Sending to LSS: ");
+            Serial.println(args[1].toFloat());
+        }
+
+        else if (command == "reset") {
+            myLSS.reset();
+        }
+
         //-----------//
         //  Sensors  //
         //-----------//
@@ -362,8 +390,12 @@ void loop() {
 //----------------------------------------------------//
 
 float calcHeading(double mylat, double mylon, double targetlat, double targetlon) {
-    double x = cos(targetlat) * sin(targetlon - mylon);
-    double y = cos(mylat) * sin(targetlat) - sin(mylat) * cos(targetlat) * cos(targetlon - mylon);
+    double my_lat_r = mylat * M_PI / 180.0;
+    double my_lon_r = mylon * M_PI / 180.0;
+    double t_lat_r = targetlat * M_PI / 180.0;
+    double t_lon_r = targetlon * M_PI / 180.0;
+    double x = cos(t_lat_r) * sin(t_lon_r - my_lon_r);
+    double y = cos(my_lat_r) * sin(t_lat_r) - sin(my_lat_r) * cos(t_lat_r) * cos(t_lon_r - my_lon_r);
 
-    return atan2(x, y) * 180 / M_PI;  // Convert to degrees
+    return atan2(x, y) * 180.0 / M_PI;  // Convert to degrees
 }
