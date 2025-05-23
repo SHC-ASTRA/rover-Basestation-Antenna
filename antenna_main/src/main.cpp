@@ -61,6 +61,9 @@ long lastAlignment = 0;
 long lastRoverPos = 0;
 double roverlat = 0;
 double roverlon = 0;
+long lastPrint = 0;
+
+int requiredHeading = 0;
 
 
 //--------------//
@@ -187,6 +190,7 @@ void setup() {
     //--------------------//
 
 	LSS::initBus(Serial2, LSS_DefaultBaud);
+    Serial.println("Setup finished.");
 }
 
 
@@ -218,7 +222,37 @@ void loop() {
     }
 #endif
 
-    if (millis() - lastAlignment > 250 && millis() - lastRoverPos < 5000 && millis() > 5000) {  // Requires update <5 seconds ago
+    if (millis() - lastRoverPos > 5000 && millis() - lastAlignment < 1000 && millis() > 5000) {
+        myLSS.wheel(0);  // Stop if no rover position received in 5 seconds
+        // Serial.println("No rover position received in 5 seconds. Stopping LSS.");
+    }
+
+    if (millis() - lastPrint > 500) {
+        lastPrint = millis();
+        // Get heading measurement from IMU
+        sensors_event_t orientationData;
+        bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+        int currentHeading = orientationData.orientation.x;
+
+        // Serial.printf("My pos: %f, %f\n", mylat, mylon);
+        // Serial.printf("Rover pos: %f, %f\n", roverlat, roverlon);
+        uint8_t system, gyro, accel, mag = 0;
+        bno.getCalibration(&system, &gyro, &accel, &mag);
+        Serial.println();
+        Serial.print("Calibration: Sys=");
+        Serial.print(system);
+        Serial.print(" Gyro=");
+        Serial.print(gyro);
+        Serial.print(" Accel=");
+        Serial.print(accel);
+        Serial.print(" Mag=");
+        Serial.println(mag);
+        Serial.print("My heading: "); Serial.print(currentHeading);
+        Serial.print("\tRequired heading: "); Serial.println(requiredHeading);
+        Serial.println();
+    }
+
+    if (millis() - lastAlignment > 100 && millis() - lastRoverPos < 5000 && millis() > 5000) {  // Requires update <5 seconds ago
         lastAlignment = millis();
 
         // Get lat/lon from GNSS
@@ -228,26 +262,22 @@ void loop() {
         double mylon = gps_data[1];
 
         // Calculate required heading to point antenna at rover
-        int requiredHeading = calcHeading(mylat, mylon, roverlat, roverlon);
+        requiredHeading = calcHeading(mylat, mylon, roverlat, roverlon);
 
         // Get heading measurement from IMU
-        int currentHeading = getBNOOrient(bno);
-
-        Serial.printf("My pos: %f, %f\n", mylat, mylon);
-        Serial.printf("Rover pos: %f, %f\n", roverlat, roverlon);
-        Serial.printf("My heading: %d\tRequired heading: ", currentHeading);
-        Serial.println(requiredHeading);
-        Serial.println();
+        sensors_event_t orientationData;
+        bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+        int currentHeading = orientationData.orientation.x;
 
         // Make LSS rotate towards the required heading
-        int error = (requiredHeading - currentHeading + 360) % 360;
+        int error = requiredHeading - currentHeading;
         if (abs(error) < 5) {  // stop if within tolerance (arbitrary)
             myLSS.wheel(0);
         } else if (error > 0) {
-            myLSS.wheel(30);
+            myLSS.wheel(20);
         } else if (error < 0) {
-            myLSS.wheel(-30);
-        } 
+            myLSS.wheel(-20);
+        }
     }
 
 
