@@ -67,7 +67,7 @@ double roverlon = 0;
 //  Prototypes  //
 //--------------//
 
-float calcHeading(double mylat, double mylon, double targetlat, double targetlon);
+int calcHeading(double mylat, double mylon, double targetlat, double targetlon);
 
 
 //------------------------------------------------------------------------------------------------//
@@ -218,7 +218,7 @@ void loop() {
     }
 #endif
 
-    if (millis() - lastAlignment > 250 && millis() - lastRoverPos < 5000) {  // Requires update <5 seconds ago
+    if (millis() - lastAlignment > 250 && millis() - lastRoverPos < 5000 && millis() > 5000) {  // Requires update <5 seconds ago
         lastAlignment = millis();
 
         // Get lat/lon from GNSS
@@ -228,24 +228,26 @@ void loop() {
         double mylon = gps_data[1];
 
         // Calculate required heading to point antenna at rover
-        float requiredHeading = calcHeading(mylat, mylon, roverlat, roverlon);
+        int requiredHeading = calcHeading(mylat, mylon, roverlat, roverlon);
 
         // Get heading measurement from IMU
-        float currentHeading = getBNOOrient(bno);
+        int currentHeading = getBNOOrient(bno);
 
-        // Make LSS rotate towards the required heading
-        // if (abs(currentHeading - requiredHeading) < 5) {  // arbitrary tolerance
-        //     myLSS.wheel(0);  // stop if within tolerance
-        // } else if (currentHeading < requiredHeading) {
-        //     myLSS.wheel(10);
-        // } else if (currentHeading > requiredHeading) {
-        //     myLSS.wheel(-10);
-        // }
         Serial.printf("My pos: %f, %f\n", mylat, mylon);
         Serial.printf("Rover pos: %f, %f\n", roverlat, roverlon);
         Serial.printf("My heading: %d\tRequired heading: ", currentHeading);
         Serial.println(requiredHeading);
         Serial.println();
+
+        // Make LSS rotate towards the required heading
+        int error = (requiredHeading - currentHeading + 360) % 360;
+        if (abs(error) < 5) {  // stop if within tolerance (arbitrary)
+            myLSS.wheel(0);
+        } else if (error > 0) {
+            myLSS.wheel(30);
+        } else if (error < 0) {
+            myLSS.wheel(-30);
+        } 
     }
 
 
@@ -389,7 +391,7 @@ void loop() {
 //                                                    //
 //----------------------------------------------------//
 
-float calcHeading(double mylat, double mylon, double targetlat, double targetlon) {
+int calcHeading(double mylat, double mylon, double targetlat, double targetlon) {
     double my_lat_r = mylat * M_PI / 180.0;
     double my_lon_r = mylon * M_PI / 180.0;
     double t_lat_r = targetlat * M_PI / 180.0;
@@ -397,5 +399,6 @@ float calcHeading(double mylat, double mylon, double targetlat, double targetlon
     double x = cos(t_lat_r) * sin(t_lon_r - my_lon_r);
     double y = cos(my_lat_r) * sin(t_lat_r) - sin(my_lat_r) * cos(t_lat_r) * cos(t_lon_r - my_lon_r);
 
-    return atan2(x, y) * 180.0 / M_PI;  // Convert to degrees
+    int deg = atan2(x, y) * 180.0 / M_PI;  // Calculate angle and convert to degrees [-180, 180]
+    return (deg + 360) % 360;  // Normalize to 0-360 degrees
 }
